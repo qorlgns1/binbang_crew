@@ -7,9 +7,9 @@ binbang CrewAI — 멀티 에이전트 개발 워크플로우
     python -m binbang_crew.main --topic "LoginPromptModal 컴포넌트 구현"
 
 환경변수 (.env):
-    ANTHROPIC_API_KEY   — Claude API 키 (필수)
-    CREW_MODEL          — 사용할 모델 (기본: claude-opus-4-6)
-    CREW_VERBOSE        — 상세 로그 출력 (기본: true)
+    GEMINI_API_KEY  — Gemini API 키 (필수)
+    MODEL           — 사용할 모델 (기본: gemini/gemini-2.5-flash-preview-04-17)
+    CREW_VERBOSE    — 상세 로그 출력 (기본: true)
 """
 
 import os
@@ -28,10 +28,11 @@ class BinbangCrew:
     tasks_config = "config/tasks.yaml"
 
     def _llm(self) -> LLM:
-        model = os.environ.get("CREW_MODEL", "claude-opus-4-6")
+        # .env의 MODEL 값을 그대로 사용 (CrewAI/LiteLLM 형식)
+        model = os.environ.get("MODEL", "gemini/gemini-2.5-flash-preview-04-17")
         return LLM(
-            model=f"anthropic/{model}",
-            api_key=os.environ["ANTHROPIC_API_KEY"],
+            model=model,
+            api_key=os.environ.get("GEMINI_API_KEY"),
             temperature=0.2,  # 일관된 코드/설계 출력을 위해 낮게 설정
         )
 
