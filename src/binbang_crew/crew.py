@@ -8,7 +8,7 @@ binbang CrewAI — 멀티 에이전트 개발 워크플로우
 
 환경변수 (.env):
     GEMINI_API_KEY  — Gemini API 키 (필수)
-    MODEL           — 사용할 모델 (기본: gemini/gemini-2.5-flash-preview-04-17)
+    MODEL           — 사용할 모델 (기본: gemini/gemini-2.5-flash)
     CREW_VERBOSE    — 상세 로그 출력 (기본: true)
 """
 
@@ -29,11 +29,12 @@ class BinbangCrew:
 
     def _llm(self) -> LLM:
         # .env의 MODEL 값을 그대로 사용 (CrewAI/LiteLLM 형식)
-        model = os.environ.get("MODEL", "gemini/gemini-2.5-flash-preview-04-17")
+        model = os.environ.get("MODEL", "gemini/gemini-2.5-flash")
         return LLM(
             model=model,
             api_key=os.environ.get("GEMINI_API_KEY"),
             temperature=0.2,  # 일관된 코드/설계 출력을 위해 낮게 설정
+            max_retries=5,    # 503/429 등 일시적 API 오류 자동 재시도
         )
 
     # ──────────────────────────────────────────────
@@ -151,7 +152,7 @@ class BinbangCrew:
     def develop_worker(self) -> Task:
         return Task(
             config=self.tasks_config["develop_worker"],
-            context=[self.plan(), self.challenge_plan()],
+            context=[self.plan(), self.challenge_plan(), self.design(), self.challenge_design()],
             name="develop_worker",
         )
 
@@ -207,7 +208,7 @@ class BinbangCrew:
             process=Process.sequential,
             verbose=_verbose(),
             memory=False,         # 태스크 간 컨텍스트는 context= 파라미터로 명시적 관리
-                    output_log_file="crew_output.log",
+            output_log_file="crew_output.log",
         )
 
 
