@@ -144,6 +144,7 @@ class BinbangCrew:
         return Task(
             config=self.tasks_config["develop"],
             context=[self.plan(), self.design(), self.challenge_design()],
+            name="develop",
         )
 
     @task
@@ -151,6 +152,7 @@ class BinbangCrew:
         return Task(
             config=self.tasks_config["develop_worker"],
             context=[self.plan(), self.challenge_plan()],
+            name="develop_worker",
         )
 
     @task
@@ -215,4 +217,3 @@ class BinbangCrew:
 
 def _verbose() -> bool:
     return os.environ.get("CREW_VERBOSE", "true").lower() != "false"
-

@@ -9,19 +9,57 @@ binbang CrewAI 진입점
 
 환경변수 (.env):
     GEMINI_API_KEY  — Gemini API 키 (필수)
-    MODEL           — 사용할 모델 (기본: gemini/gemini-2.5-flash-preview-04-17)
+    MODEL           — 사용할 모델 (기본: gemini/gemini-2.5-flash)
+    REPO_ROOT       — 파일을 저장할 모노레포 루트 경로 (필수, 예: /home/ubuntu/workspace/binbang)
     CREW_TOPIC      — crewai run 시 topic 자동 입력 (선택)
     CREW_VERBOSE    — 상세 로그 출력 (기본: true)
+    CREW_DRY_RUN    — true 시 파일 저장 없이 경로만 출력 (기본: false)
 """
 
 import argparse
 import os
+import re
 import sys
 import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+_CODE_BLOCK_RE = re.compile(
+    r"```(?:typescript|tsx|ts|javascript|js)\n(// (?:apps|packages)/[^\n]+\n.*?)```",
+    re.DOTALL,
+)
+
+
+def _extract_files(task_raw: str) -> dict[str, str]:
+    """코드블록 첫 줄의 '// 경로' 주석을 파싱해 {상대경로: 내용} 딕셔너리를 반환한다."""
+    files: dict[str, str] = {}
+    for match in _CODE_BLOCK_RE.finditer(task_raw):
+        block = match.group(1)
+        lines = block.split("\n")
+        rel_path = lines[0].strip()[3:]
+        content = "\n".join(lines[1:]).rstrip("\n") + "\n"
+        files[rel_path] = content
+    return files
+
+
+def _apply_files(files: dict[str, str], repo_root: str) -> None:
+    """추출된 파일을 repo_root 기준으로 저장한다."""
+    if not files:
+        print("  저장할 파일이 없습니다.")
+        return
+    dry_run = os.environ.get("CREW_DRY_RUN", "false").lower() == "true"
+    for rel_path, content in sorted(files.items()):
+        abs_path = Path(repo_root) / rel_path
+        if dry_run:
+            print(f"  [DRY-RUN] {rel_path}")
+            continue
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(content, encoding="utf-8")
+        print(f"  저장: {rel_path}")
 
 
 def _validate_env() -> None:
@@ -89,6 +127,28 @@ def run(topic: str | None = None) -> None:
                 print(f"{'='*60}")
                 print(result)
                 print("\n로그 파일: crew_output.log")
+
+                final_raw = result.raw if hasattr(result, "raw") else str(result)
+                if "REWORK" in final_raw.upper():
+                    print("\n[SKIP] final_review 결과가 REWORK — 파일을 저장하지 않습니다.")
+                    print("       crew_output.log에서 수정 지시를 확인하세요.")
+                    return
+
+                repo_root = os.environ.get("REPO_ROOT", "").strip()
+                if not repo_root:
+                    print("\n[SKIP] REPO_ROOT 환경변수가 없어 파일을 저장할 수 없습니다.")
+                    print("       .env에 REPO_ROOT=/path/to/binbang 을 추가하세요.")
+                    return
+
+                all_files: dict[str, str] = {}
+                for task_out in getattr(result, "tasks_output", []):
+                    if getattr(task_out, "name", None) in ("develop", "develop_worker"):
+                        all_files.update(_extract_files(getattr(task_out, "raw", "")))
+
+                print(f"\n{'='*60}")
+                print(f"  파일 저장 ({len(all_files)}개) — REPO_ROOT: {repo_root}")
+                print(f"{'='*60}")
+                _apply_files(all_files, repo_root)
                 return
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
