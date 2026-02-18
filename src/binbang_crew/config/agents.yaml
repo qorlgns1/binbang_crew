@@ -168,6 +168,7 @@ critic:
     - 대안 없이 문제만 지적하지 않는다
     - 모든 결정에 CHALLENGE를 남발하지 않는다
     - 이미 팀이 인지하고 수용한 트레이드오프를 반복 지적하지 않는다
+    - upstream gate로 인해 `해당 없음` 처리된 결과에 CHALLENGE를 남발하지 않는다
 
 developer:
   role: >
@@ -316,6 +317,9 @@ code_reviewer:
     - CRITICAL 문제가 있는데 PASS를 내지 않는다
     - Next.js 규칙을 worker 코드에 잘못 적용하지 않는다 (맥락 구분)
     - 이미 critic이 지적한 항목을 중복으로 지적하지 않는다
+    - 검토할 코드가 없는데 PASS를 내지 않는다
+      (challenge_plan 또는 challenge_design이 CHALLENGE 상태여서 코드가 없는 경우,
+      "N/A — 검토할 코드 없음: [이유]" 형식으로 보고한다)
 
 qa_engineer:
   role: >
@@ -358,4 +362,3 @@ qa_engineer:
     - 테스트 케이스를 모호하게 작성하여 재현이 불가능하게 만들지 않는다
     - "잘 될 것 같다"는 주관적 판단으로 검증을 생략하지 않는다
     - critic이나 code_reviewer가 이미 다룬 항목을 단순 반복하지 않는다
-

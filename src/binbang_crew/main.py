@@ -17,6 +17,7 @@ binbang CrewAI 진입점
 import argparse
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 
@@ -54,21 +55,68 @@ def run(topic: str | None = None) -> None:
 
     _validate_env()
     topic = _resolve_topic(topic)
-    model = os.environ.get("MODEL", "gemini/gemini-2.5-flash-preview-04-17")
+    default_model = os.environ.get("MODEL", "gemini/gemini-2.5-flash-preview-04-17")
+    fallback_models = [
+        m.strip()
+        for m in os.environ.get("MODEL_FALLBACKS", "").split(",")
+        if m.strip()
+    ]
+    max_retries = int(os.environ.get("CREW_RUN_RETRIES", "3"))
+    retry_delay_sec = float(os.environ.get("CREW_RETRY_DELAY_SEC", "2"))
+
+    models_to_try: list[str] = []
+    for model in [default_model, *fallback_models]:
+        if model not in models_to_try:
+            models_to_try.append(model)
 
     print(f"\n{'='*60}")
     print("  binbang CrewAI 시작")
     print(f"  Topic : {topic}")
-    print(f"  Model : {model}")
+    print(f"  Model : {default_model}")
+    if fallback_models:
+        print(f"  Fallback Models : {', '.join(fallback_models)}")
+    print(f"  Retry : model당 최대 {max_retries}회")
     print(f"{'='*60}\n")
 
-    result = BinbangCrew().crew().kickoff(inputs={"topic": topic})
+    last_error: Exception | None = None
+    for model in models_to_try:
+        os.environ["MODEL"] = model
+        for attempt in range(1, max_retries + 1):
+            try:
+                result = BinbangCrew().crew().kickoff(inputs={"topic": topic})
+                print(f"\n{'='*60}")
+                print("  최종 결과")
+                print(f"{'='*60}")
+                print(result)
+                print("\n로그 파일: crew_output.log")
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                message = str(exc)
+                is_retryable = (
+                    "503" in message
+                    or "UNAVAILABLE" in message
+                    or "None or empty" in message
+                    or "timeout" in message.lower()
+                )
+                is_last_attempt = attempt >= max_retries
+                if not is_retryable or is_last_attempt:
+                    print(
+                        f"[WARN] 모델={model}, 시도={attempt}/{max_retries} 실패: {message}"
+                    )
+                    break
+                wait_sec = retry_delay_sec * (2 ** (attempt - 1))
+                print(
+                    "[WARN] 일시적 LLM 오류. "
+                    f"모델={model}, 시도={attempt}/{max_retries}, "
+                    f"{wait_sec:.1f}초 후 재시도"
+                )
+                time.sleep(wait_sec)
 
-    print(f"\n{'='*60}")
-    print("  최종 결과")
-    print(f"{'='*60}")
-    print(result)
-    print("\n로그 파일: crew_output.log")
+    print("[ERROR] Crew 실행에 실패했습니다.")
+    if last_error is not None:
+        print(f"원인: {last_error}")
+    sys.exit(1)
 
 
 def train() -> None:
@@ -164,4 +212,3 @@ if __name__ == "__main__":
         test()
     else:
         run(topic=args.topic)
-
