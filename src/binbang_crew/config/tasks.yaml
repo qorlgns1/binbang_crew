@@ -1,0 +1,297 @@
+# CrewAI Tasks — binbang 모노레포
+#
+# 실행 흐름:
+#   plan → challenge_plan → design → challenge_design
+#     → develop → develop_worker → review → challenge_review
+#     → qa → final_review
+#
+# apps/* 코드만 변경 시: develop_worker 단계 생략 가능
+# worker 코드만 변경 시: design, develop 단계 생략 가능
+
+plan:
+  description: >
+    주어진 요구사항 {topic}을 분석하여 구체적인 구현 계획을 수립한다.
+
+    다음을 반드시 포함한다:
+    1. 변경이 필요한 파일 목록 (경로, 신규/수정 여부)
+    2. 각 파일의 담당 에이전트 (developer / worker_developer)
+    3. 파일 간 의존 관계 및 작업 순서
+    4. packages/db 스키마 변경 필요 여부
+    5. 예상되는 기술적 위험 요소
+
+    패키지 경계 규칙:
+    - apps/travel, apps/web → developer 담당
+    - apps/worker, packages/worker-shared → worker_developer 담당
+    - packages/db 변경 시 영향 범위 명시
+  expected_output: >
+    ## 구현 계획
+
+    ### 변경 파일 목록
+    | 파일 경로 | 유형 | 담당 에이전트 | 의존 파일 |
+    |---|---|---|---|
+    | ... | 신규/수정 | developer/worker_developer | ... |
+
+    ### 작업 순서
+    (numbered list)
+
+    ### DB 스키마 변경
+    필요 / 불필요 — 필요 시 변경 내용 명시
+
+    ### 기술적 위험 요소
+    (있다면 명시, 없으면 "없음")
+  agent: tech_lead
+
+challenge_plan:
+  description: >
+    tech_lead가 수립한 구현 계획(plan 태스크 결과)을 비판적으로 검토한다.
+
+    다음 관점에서 도전한다:
+    - 이 접근법이 정말 최선인가?
+    - 더 단순한 방법이 있는가?
+    - 놓친 파일이나 의존성이 있는가?
+    - 패키지 경계 규칙 위반 가능성은 없는가?
+    - DB 스키마 변경 없이 구현 가능한데 변경을 제안하고 있지는 않은가?
+  expected_output: >
+    ## 도전 항목
+
+    ### [항목명]
+    - 문제: (구체적으로)
+    - 최악의 시나리오: (이 결정이 틀렸을 때 어떤 일이 벌어지는가)
+    - 대안 제시: (더 나은 방법이 있다면)
+
+    ## 판정
+    PROCEED — 계획대로 진행
+    CHALLENGE — [tech_lead가 수정해야 할 항목 명시]
+  agent: critic
+  context:
+    - plan
+
+design:
+  description: >
+    challenge_plan이 PROCEED인 경우, plan에서 정의된 apps/travel 및 apps/web
+    관련 파일들의 컴포넌트 명세서를 작성한다.
+
+    challenge_plan이 CHALLENGE인 경우, 지적된 항목이 해소될 때까지 진행하지 않는다.
+
+    각 파일에 대해 다음을 작성한다:
+    - Props 인터페이스 (TypeScript 타입 포함)
+    - 내부 상태 목록
+    - 주요 로직 흐름 (numbered)
+    - 필요한 import 목록
+    - 엣지 케이스 처리 방법
+    - 접근성 요구사항
+
+    실제 TypeScript/TSX 코드는 작성하지 않는다.
+    worker 관련 파일은 이 태스크에서 다루지 않는다.
+  expected_output: >
+    파일별 명세서 (plan에서 정의된 apps/* 파일 수만큼):
+
+    ---
+    ### 파일 경로
+    ### 역할 (1-2줄)
+    ### Props 인터페이스 (TypeScript)
+    ### 내부 상태
+    ### 로직 흐름 (numbered)
+    ### import 목록
+    ### 엣지 케이스
+    ### 접근성 요구사항
+    ---
+  agent: ux_designer
+  context:
+    - plan
+    - challenge_plan
+
+challenge_design:
+  description: >
+    ux_designer가 작성한 컴포넌트 명세서(design 태스크 결과)를 비판적으로 검토한다.
+
+    다음 관점에서 도전한다:
+    - 명세서가 developer가 바로 구현할 수 있을 만큼 충분히 구체적인가?
+    - 기존 코드베이스 패턴과 충돌하지 않는가?
+    - 불필요하게 복잡한 컴포넌트 구조를 제안하고 있지는 않은가?
+    - 엣지 케이스 처리가 누락된 부분은 없는가?
+    - 접근성 요구사항이 실제로 구현 가능한 수준인가?
+  expected_output: >
+    ## 도전 항목
+
+    ### [항목명]
+    - 문제: (구체적으로)
+    - 최악의 시나리오: (이 결정이 틀렸을 때 어떤 일이 벌어지는가)
+    - 대안 제시: (더 나은 방법이 있다면)
+
+    ## 판정
+    PROCEED — 명세서대로 구현 진행
+    CHALLENGE — [ux_designer가 수정해야 할 항목 명시]
+  agent: critic
+  context:
+    - design
+
+develop:
+  description: >
+    challenge_design이 PROCEED인 경우, design 명세서를 바탕으로
+    apps/travel 및 apps/web의 TypeScript 코드를 작성한다.
+
+    challenge_design이 CHALLENGE인 경우, 지적된 항목이 해소될 때까지 진행하지 않는다.
+
+    코드 작성 시 준수 사항:
+    - import는 `@/` alias 사용
+    - `'use client'`는 필요한 경우에만 최소 범위
+    - `any` 타입 금지
+    - DB 접근은 services/ 레이어에서만
+    - @workspace/worker-shared import 금지
+
+    파일별로 분리하여 작성하고, 각 파일 경로를 코드블록 첫 줄에 주석으로 명시한다.
+  expected_output: >
+    파일별 TypeScript/TSX 코드:
+
+    ```typescript
+    // apps/travel/src/...
+    (구현 코드)
+    ```
+
+    검토 요청: [변경 요약 1줄]
+  agent: developer
+  context:
+    - plan
+    - design
+    - challenge_design
+
+develop_worker:
+  description: >
+    plan에서 apps/worker 또는 packages/worker-shared 변경이 필요한 경우,
+    해당 파일들의 TypeScript 코드를 작성한다.
+
+    worker 관련 변경이 없다면 이 태스크는 "해당 없음"으로 처리한다.
+
+    코드 작성 시 준수 사항:
+    - Job 함수는 Input / Result 인터페이스를 명시적으로 정의
+    - 멱등성 보장 (동일 잡 재실행 시 부작용 없음)
+    - 에러는 throw로 BullMQ retry에 위임, 직접 catch 금지
+    - Atomic해야 할 작업은 반드시 트랜잭션으로 처리
+    - apps/* import 금지
+  expected_output: >
+    파일별 TypeScript 코드:
+
+    ```typescript
+    // packages/worker-shared/src/runtime/... 또는 apps/worker/src/...
+    (구현 코드)
+    ```
+
+    검토 요청: [변경 요약 1줄]
+
+    또는:
+
+    해당 없음 — 이번 태스크에 worker 코드 변경 없음
+  agent: worker_developer
+  context:
+    - plan
+    - challenge_plan
+
+review:
+  description: >
+    develop 및 develop_worker 결과물을 코드 리뷰한다.
+
+    다음 항목을 반드시 검토한다:
+    1. 패키지 경계 규칙 위반 여부
+    2. 타입 안전성 (any, non-null assertion 남용)
+    3. 보안 취약점 (XSS, 인증 누락, 민감 정보 노출)
+    4. 성능 문제 (N+1 쿼리, 불필요한 re-render)
+    5. apps/* 코드: services/ 레이어 분리 준수 여부
+    6. worker 코드: 멱등성, retry 위임, Atomic 트랜잭션 여부
+
+    Next.js 규칙을 worker 코드에 잘못 적용하지 않는다.
+  expected_output: >
+    PASS 또는 REWORK
+
+    [REWORK인 경우]
+    - 심각도: CRITICAL / MAJOR / MINOR
+    - 위치: 파일명:라인
+    - 문제: 설명
+    - 수정 방향: 구체적 제안
+  agent: code_reviewer
+  context:
+    - develop
+    - develop_worker
+
+challenge_review:
+  description: >
+    code_reviewer의 검토 결과(review 태스크)를 메타 검토한다.
+
+    다음을 확인한다:
+    - PASS 판정이 너무 관대하지 않은가? 놓친 문제는 없는가?
+    - REWORK 판정이 실제 문제 기반인가, 아니면 스타일 취향인가?
+    - 심각도 분류가 적절한가? (MINOR를 CRITICAL로 과장하거나 반대 경우)
+    - 수정 방향이 구체적이고 실행 가능한가?
+  expected_output: >
+    ## 메타 검토
+
+    ### [항목명 — 있는 경우만]
+    - 문제: 리뷰에서 놓쳤거나 잘못 판단한 부분
+    - 근거: (구체적으로)
+
+    ## 판정
+    PROCEED — 리뷰 결과를 그대로 따른다
+    CHALLENGE — [재검토가 필요한 항목 명시]
+  agent: critic
+  context:
+    - review
+
+qa:
+  description: >
+    challenge_review가 PROCEED인 경우, 구현된 기능의 검증 시나리오를 작성한다.
+
+    다음을 포함한다:
+    1. Happy path 시나리오 (Given / When / Then 형식)
+    2. Edge case: 빈 값, 최대값, 네트워크 오류, 세션 만료
+    3. 보안: 인증 우회, rate limit 우회 시도
+    4. worker 관련 변경이 있다면: 멱등성, retry, graceful shutdown
+    5. 회귀 위험 영역 (기존 기능에 영향을 줄 수 있는 부분)
+
+    이미 code_reviewer나 critic이 지적한 항목을 단순 반복하지 않는다.
+  expected_output: >
+    ### 검증 시나리오 목록
+    - [ ] (Given) / (When) / (Then)
+
+    ### 자동화 가능 항목
+    ### 수동 검증 필요 항목
+    ### 회귀 위험 영역
+  agent: qa_engineer
+  context:
+    - develop
+    - develop_worker
+    - review
+    - challenge_review
+
+final_review:
+  description: >
+    모든 산출물(plan, design, develop, develop_worker, review, qa)을
+    종합하여 최종 PASS / REWORK를 판정한다.
+
+    다음을 기준으로 판단한다:
+    1. 최초 요구사항 {topic}이 완전히 구현되었는가?
+    2. 패키지 경계 및 아키텍처 원칙이 준수되었는가?
+    3. code_reviewer의 CRITICAL/MAJOR 문제가 모두 해소되었는가?
+    4. critic의 CHALLENGE 항목이 모두 해소되었는가?
+    5. qa_engineer의 회귀 위험 영역이 검토되었는가?
+
+    REWORK인 경우, 어떤 에이전트가 무엇을 수정해야 하는지 명확히 지정한다.
+  expected_output: >
+    ## 최종 판정
+    PASS 또는 REWORK
+
+    [PASS인 경우]
+    구현 완료 요약 (변경된 파일 목록, 주요 내용)
+
+    [REWORK인 경우]
+    | 담당 에이전트 | 수정 항목 | 근거 |
+    |---|---|---|
+    | developer / worker_developer / ... | ... | ... |
+  agent: tech_lead
+  context:
+    - plan
+    - develop
+    - develop_worker
+    - review
+    - challenge_review
+    - qa
+
